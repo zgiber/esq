@@ -5,11 +5,11 @@ import (
 )
 
 type Request struct {
-	Query   *Query  `json:"query,omitempty"`
-	Sort    []*sort `json:"sort,omitempty"`
-	From    int     `json:"from,omitempty"`
-	Size    int     `json:"size,omitempty"`
-	Timeout string  `json:"timeout,omitempty"`
+	query    *Query
+	sortings []*Sorting
+	from     int
+	size     int
+	timeout  string
 }
 
 type Query struct {
@@ -40,7 +40,7 @@ type leafQuery struct {
 	parameters map[string]interface{}
 }
 
-type sort struct {
+type Sorting struct {
 	byField      string
 	order        string
 	mode         string
@@ -48,35 +48,51 @@ type sort struct {
 	nestedFilter *Query
 }
 
-func newRequest(formID string) *Request {
+func NewQuery() *Query {
+	return &Query{}
+}
+
+func NewRequest(q *Query) *Request {
 	return &Request{
-		Query:   newQuery().Must(newTermQuery(formID, "form_id.keyword")),
-		From:    0,
-		Size:    25,
-		Timeout: "10s",
+		query:   q,
+		from:    0,
+		size:    25,
+		timeout: "10s",
 	}
 }
 
 func (r *Request) SetFrom(value int) *Request {
-	r.From = value
+	r.from = value
 	return r
 }
 
 func (r *Request) SetPageSize(value int) *Request {
-	r.Size = value
+	r.size = value
 	return r
 }
 
-func (r *Request) SortBy(sortings ...*sort) *Request {
+func (r *Request) Sort(sortings ...*Sorting) *Request {
 
 	for _, srt := range sortings {
-		r.Sort = append(r.Sort, srt)
+		r.sortings = append(r.sortings, srt)
 	}
 	return r
 }
 
-func newQuery() *Query {
-	return &Query{}
+func (r *Request) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		Query    *Query     `json:"query,omitempty"`
+		Sortings []*Sorting `json:"sort,omitempty"`
+		From     int        `json:"from,omitempty"`
+		Size     int        `json:"size,omitempty"`
+		Timeout  string     `json:"timeout,omitempty"`
+	}{
+		Query:    r.query,
+		Sortings: r.sortings,
+		From:     r.from,
+		Size:     r.size,
+		Timeout:  r.timeout,
+	})
 }
 
 func (q *Query) isLeaf() bool {
@@ -128,7 +144,7 @@ func (q *Query) Must(subQuery ...*Query) *Query {
 	return q
 }
 
-func (q *Query) mustNot(subQuery ...*Query) *Query {
+func (q *Query) MustNot(subQuery ...*Query) *Query {
 	if q.compoundQuery == nil {
 		q.compoundQuery = &compoundQuery{}
 	}
@@ -147,7 +163,7 @@ func (q *Query) mustNot(subQuery ...*Query) *Query {
 	return q
 }
 
-func (q *Query) should(subQuery ...*Query) *Query {
+func (q *Query) Should(subQuery ...*Query) *Query {
 	if q.compoundQuery == nil {
 		q.compoundQuery = &compoundQuery{}
 	}
@@ -166,7 +182,7 @@ func (q *Query) should(subQuery ...*Query) *Query {
 	return q
 }
 
-func (q *Query) filter(subQuery ...*Query) *Query {
+func (q *Query) Filter(subQuery ...*Query) *Query {
 	if q.compoundQuery == nil {
 		q.compoundQuery = &compoundQuery{}
 	}
@@ -185,12 +201,11 @@ func (q *Query) filter(subQuery ...*Query) *Query {
 	return q
 }
 
-func (q *Query) Nested(path string, query *Query) *Query {
+func NestedQuery(path string, q *Query) *Query {
 	nq := &nestedQuery{}
 	nq.Nested.Path = path
-	nq.Nested.Query = query
-	q.nestedQuery = nq
-	return q
+	nq.Nested.Query = q
+	return &Query{nestedQuery: nq}
 }
 
 // https://www.elastic.co/guide/en/elasticsearch/reference/current/query-dsl-minimum-should-match.html
@@ -198,7 +213,7 @@ func (q *Query) Nested(path string, query *Query) *Query {
 // for a result to be displayed. E.g. the value is 1 then
 // a document which does not match any 'should' clauses is not
 // returned by the search.
-func (q *Query) MinimumShouldMatch(value interface{}) *Query {
+func (q *Query) minimumShouldMatch(value interface{}) *Query {
 	if q.isLeaf() {
 		q.leafQuery.parameters["minimum_should_match"] = value
 		return q
@@ -218,8 +233,8 @@ func Exists(field string) *Query {
 	return q
 }
 
-// Match queries accept text/numerics/dates
-func newMatchQuery(value interface{}, field string) *Query {
+// Match queries accept text/numerics/date/etc values
+func Match(value interface{}, field string) *Query {
 	q := &Query{leafQuery: &leafQuery{}}
 	q.leafQuery.queryType = "match"
 	q.leafQuery.parameters = map[string]interface{}{
@@ -229,7 +244,7 @@ func newMatchQuery(value interface{}, field string) *Query {
 }
 
 // The multi_match query builds on the match query to allow multi-field queries
-func newMultiMatchQuery(value interface{}, fields ...string) *Query {
+func MultiMatch(value interface{}, fields ...string) *Query {
 	q := &Query{leafQuery: &leafQuery{}}
 	q.leafQuery.queryType = "multi_match"
 	q.leafQuery.parameters = map[string]interface{}{
@@ -239,8 +254,7 @@ func newMultiMatchQuery(value interface{}, fields ...string) *Query {
 	return q
 }
 
-//
-func newTermQuery(value interface{}, field string) *Query {
+func Term(value interface{}, field string) *Query {
 	q := &Query{leafQuery: &leafQuery{}}
 	q.leafQuery.queryType = "term"
 	q.leafQuery.parameters = map[string]interface{}{
@@ -249,7 +263,7 @@ func newTermQuery(value interface{}, field string) *Query {
 	return q
 }
 
-func newRangeQuery(gte, lte interface{}, field string) *Query {
+func Range(gte, lte interface{}, field string) *Query {
 	q := &Query{leafQuery: &leafQuery{}}
 	q.leafQuery.queryType = "range"
 	q.leafQuery.parameters = map[string]interface{}{
@@ -264,7 +278,7 @@ func newRangeQuery(gte, lte interface{}, field string) *Query {
 	return q
 }
 
-func (s *sort) MarshalJSON() ([]byte, error) {
+func (s *Sorting) MarshalJSON() ([]byte, error) {
 	if s == nil {
 		return []byte("{}"), nil
 	}
@@ -278,13 +292,57 @@ func (s *sort) MarshalJSON() ([]byte, error) {
 	})
 }
 
-func newSort(fieldname, order string) *sort {
+func ByField(fieldname string) *Sorting {
 	if len(fieldname) == 0 {
 		return nil
 	}
 
-	return &sort{
-		order:   order,
+	return &Sorting{
 		byField: fieldname,
 	}
+}
+
+func (s *Sorting) Desc() *Sorting {
+	s.order = "desc"
+	return s
+}
+
+func (s *Sorting) Asc() *Sorting {
+	s.order = "desc"
+	return s
+}
+
+func (s *Sorting) Min() *Sorting {
+	s.mode = "min"
+	return s
+}
+
+func (s *Sorting) Max() *Sorting {
+	s.mode = "max"
+	return s
+}
+
+func (s *Sorting) Sum() *Sorting {
+	s.mode = "sum"
+	return s
+}
+
+func (s *Sorting) Avg() *Sorting {
+	s.mode = "avg"
+	return s
+}
+
+func (s *Sorting) Median() *Sorting {
+	s.mode = "median"
+	return s
+}
+
+func (s *Sorting) Nested(path string) *Sorting {
+	s.nestedPath = path
+	return s
+}
+
+func (s *Sorting) Filter(q *Query) *Sorting {
+	s.nestedFilter = q
+	return s
 }
