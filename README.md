@@ -3,3 +3,8 @@
 ElasticSearch Query Builder
 
 At this moment this package is experimental. Which has some benefit: Suggestions and feature requests are appreciated. And some drawback: Expect Breaking changes.
+ 
+TODO:
+  - tests
+  - additional ES features
+  - examples
